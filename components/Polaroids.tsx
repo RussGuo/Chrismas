@@ -144,16 +144,34 @@ const PolaroidItem: React.FC<{
           <meshStandardMaterial color="#fdfdfd" roughness={0.8} />
         </mesh>
 
-        {/* The Photo Area */}
-        <mesh position={[0, 0.15, 0.025]}>
-          <planeGeometry args={[1.0, 1.0]} />
-          {texture && !error ? (
-            <meshBasicMaterial map={texture} side={THREE.DoubleSide} />
-          ) : (
-            // Fallback Material (Red for error, Grey for loading)
-            <meshStandardMaterial color={error ? "#550000" : "#cccccc"} />
-          )}
-        </mesh>
+        {/* The Photo Area – texture on both sides */}
+        {texture && !error ? (
+          <>
+            {/* Front side */}
+            <mesh position={[0, 0.15, 0.025]}>
+              <planeGeometry args={[1.0, 1.0]} />
+              <meshBasicMaterial map={texture} />
+            </mesh>
+            {/* Back side */}
+            <mesh position={[0, 0.15, -0.025]} rotation={[0, Math.PI, 0]}>
+              <planeGeometry args={[1.0, 1.0]} />
+              <meshBasicMaterial map={texture} />
+            </mesh>
+          </>
+        ) : (
+          <>
+            {/* Front placeholder */}
+            <mesh position={[0, 0.15, 0.025]}>
+              <planeGeometry args={[1.0, 1.0]} />
+              <meshStandardMaterial color={error ? "#550000" : "#cccccc"} />
+            </mesh>
+            {/* Back placeholder */}
+            <mesh position={[0, 0.15, -0.025]} rotation={[0, Math.PI, 0]}>
+              <planeGeometry args={[1.0, 1.0]} />
+              <meshStandardMaterial color={error ? "#550000" : "#cccccc"} />
+            </mesh>
+          </>
+        )}
         
         {/* "Tape" or Gold Clip */}
         <mesh position={[0, 0.7, 0.025]} rotation={[0,0,0]}>
