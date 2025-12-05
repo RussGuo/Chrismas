@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "node scripts/generate-photos-manifest.js && vite",
+    "build": "node scripts/generate-photos-manifest.js && vite build",
     "preview": "vite preview",
     "download-model": "node scripts/download-model.js",
     "postinstall": "npm run download-model"

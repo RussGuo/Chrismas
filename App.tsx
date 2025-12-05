@@ -49,6 +49,10 @@ export default function App() {
   const [mode, setMode] = useState<TreeMode>(TreeMode.FORMED);
   const [handPosition, setHandPosition] = useState<{ x: number; y: number; detected: boolean }>({ x: 0.5, y: 0.5, detected: false });
   const [uploadedPhotos, setUploadedPhotos] = useState<string[]>([]);
+  const [uploadedTexts, setUploadedTexts] = useState<string[]>(['FOR CINCIN']);
+  const [uploadedAudios, setUploadedAudios] = useState<string[]>([]);
+  const [currentAudioUrl, setCurrentAudioUrl] = useState<string | null>(null);
+  const audioRef = React.useRef<HTMLAudioElement | null>(null);
 
   const toggleMode = () => {
     setMode((prev) => (prev === TreeMode.FORMED ? TreeMode.CHAOS : TreeMode.FORMED));
@@ -59,8 +63,66 @@ export default function App() {
   };
 
   const handlePhotosUpload = (photos: string[]) => {
-    setUploadedPhotos(photos);
+    setUploadedPhotos((prev) => [...prev, ...photos]);
   };
+
+  const handleTextAdd = (text: string) => {
+    if (!text.trim()) return;
+    setUploadedTexts((prev) => [...prev, text.trim()]);
+  };
+
+  const handleAudioAdd = (audioUrl: string) => {
+    setUploadedAudios((prev) => [...prev, audioUrl]);
+  };
+
+  // Load any photos found under public/photos via manifest.json
+  React.useEffect(() => {
+    fetch('/photos/manifest.json')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && Array.isArray(data.photos)) {
+          setUploadedPhotos((prev) => (prev.length > 0 ? prev : data.photos));
+        }
+      })
+      .catch(() => {
+        // Ignore if manifest is missing or malformed
+      });
+  }, []);
+
+  React.useEffect(() => {
+    const handleFocus = (event: Event) => {
+      const custom = event as CustomEvent<{ url: string }>;
+      if (custom.detail?.url) {
+        setCurrentAudioUrl(custom.detail.url);
+      }
+    };
+
+    const handleBlur = () => {
+      setCurrentAudioUrl(null);
+    };
+
+    window.addEventListener('memory-audio-focus', handleFocus as EventListener);
+    window.addEventListener('memory-audio-blur', handleBlur as EventListener);
+
+    return () => {
+      window.removeEventListener('memory-audio-focus', handleFocus as EventListener);
+      window.removeEventListener('memory-audio-blur', handleBlur as EventListener);
+    };
+  }, []);
+
+  React.useEffect(() => {
+    const audioEl = audioRef.current;
+    if (!audioEl) return;
+
+    if (currentAudioUrl) {
+      audioEl.src = currentAudioUrl;
+      audioEl.play().catch(() => {
+        // Autoplay might be blocked; ignore error.
+      });
+    } else {
+      audioEl.pause();
+    }
+  }, [currentAudioUrl]);
 
   return (
     <div className="w-full h-screen relative bg-gradient-to-b from-black via-[#001a0d] to-[#0a2f1e]">
@@ -72,7 +134,13 @@ export default function App() {
           shadows
         >
           <Suspense fallback={null}>
-            <Experience mode={mode} handPosition={handPosition} uploadedPhotos={uploadedPhotos} />
+            <Experience
+              mode={mode}
+              handPosition={handPosition}
+              uploadedPhotos={uploadedPhotos}
+              uploadedTexts={uploadedTexts}
+              uploadedAudios={uploadedAudios}
+            />
           </Suspense>
         </Canvas>
       </ErrorBoundary>
@@ -83,11 +151,21 @@ export default function App() {
         barStyles={{ background: '#D4AF37', height: '10px' }}
         dataStyles={{ color: '#D4AF37', fontFamily: 'Cinzel' }}
       />
-      
-      <UIOverlay mode={mode} onToggle={toggleMode} onPhotosUpload={handlePhotosUpload} hasPhotos={uploadedPhotos.length > 0} />
+
+      <UIOverlay
+        mode={mode}
+        onToggle={toggleMode}
+        onPhotosUpload={handlePhotosUpload}
+        onTextAdd={handleTextAdd}
+        onAudioAdd={handleAudioAdd}
+        hasPhotos={uploadedPhotos.length > 0}
+      />
       
       {/* Gesture Control Module */}
       <GestureController currentMode={mode} onModeChange={setMode} onHandPosition={handleHandPosition} />
+
+      {/* Hidden audio player for voice memories */}
+      <audio ref={audioRef} className="hidden" />
     </div>
   );
 }

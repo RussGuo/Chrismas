@@ -21,6 +21,7 @@ export const GestureController: React.FC<GestureControllerProps> = ({ onModeChan
   const openFrames = useRef(0);
   const closedFrames = useRef(0);
   const CONFIDENCE_THRESHOLD = 5; // Number of consecutive frames to confirm gesture
+  const noHandFrames = useRef(0);
 
   useEffect(() => {
     let handLandmarker: HandLandmarker | null = null;
@@ -143,6 +144,7 @@ export const GestureController: React.FC<GestureControllerProps> = ({ onModeChan
         const result = handLandmarker.detectForVideo(videoRef.current, startTimeMs);
 
         if (result.landmarks && result.landmarks.length > 0) {
+          noHandFrames.current = 0;
           const landmarks = result.landmarks[0];
           drawHandSkeleton(landmarks);
           detectGesture(landmarks);
@@ -163,6 +165,17 @@ export const GestureController: React.FC<GestureControllerProps> = ({ onModeChan
             // Better to keep them to prevent flickering if hand blips out for 1 frame
             openFrames.current = Math.max(0, openFrames.current - 1);
             closedFrames.current = Math.max(0, closedFrames.current - 1);
+
+            // If hand has been missing for a while while in CHAOS, gently restore tree
+            noHandFrames.current += 1;
+            const NO_HAND_THRESHOLD = 60; // ~1s at 60fps
+            if (
+              noHandFrames.current > NO_HAND_THRESHOLD &&
+              lastModeRef.current === TreeMode.CHAOS
+            ) {
+              lastModeRef.current = TreeMode.FORMED;
+              onModeChange(TreeMode.FORMED);
+            }
         }
       }
 
@@ -170,57 +183,39 @@ export const GestureController: React.FC<GestureControllerProps> = ({ onModeChan
     };
 
     const detectGesture = (landmarks: any[]) => {
-      // 0 is Wrist
-      // Tips: 8 (Index), 12 (Middle), 16 (Ring), 20 (Pinky)
-      // Bases (MCP): 5, 9, 13, 17
-      
-      const wrist = landmarks[0];
-      
-      // Calculate palm center (average of wrist and finger bases)
-      // Finger bases (MCP joints): 5, 9, 13, 17
-      const palmCenterX = (landmarks[0].x + landmarks[5].x + landmarks[9].x + landmarks[13].x + landmarks[17].x) / 5;
-      const palmCenterY = (landmarks[0].y + landmarks[5].y + landmarks[9].y + landmarks[13].y + landmarks[17].y) / 5;
-      
-      // Send hand position for camera control
-      // Normalize coordinates: x and y are in [0, 1], center at (0.5, 0.5)
-      setHandPos({ x: palmCenterX, y: palmCenterY });
-      if (onHandPosition) {
-        onHandPosition(palmCenterX, palmCenterY, true);
-      }
-      
-      const fingerTips = [8, 12, 16, 20];
-      const fingerBases = [5, 9, 13, 17];
-      
-      let extendedFingers = 0;
+      // Only track thumb + index finger for gesture + position
+      // Thumb: base 2, tip 4
+      // Index: base 5, tip 8
 
-      for (let i = 0; i < 4; i++) {
-        const tip = landmarks[fingerTips[i]];
-        const base = landmarks[fingerBases[i]];
-        
-        // Calculate distance from wrist to tip vs wrist to base
-        const distTip = Math.hypot(tip.x - wrist.x, tip.y - wrist.y);
-        const distBase = Math.hypot(base.x - wrist.x, base.y - wrist.y);
-        
-        // Heuristic: If tip is significantly further from wrist than base, it's extended
-        if (distTip > distBase * 1.5) { // 1.5 multiplier is a safe heuristic for extension
-          extendedFingers++;
-        }
-      }
-      
-      // Thumb check (Tip 4 vs Base 2)
-      const thumbTip = landmarks[4];
       const thumbBase = landmarks[2];
-      const distThumbTip = Math.hypot(thumbTip.x - wrist.x, thumbTip.y - wrist.y);
-      const distThumbBase = Math.hypot(thumbBase.x - wrist.x, thumbBase.y - wrist.y);
-      if (distThumbTip > distThumbBase * 1.2) extendedFingers++;
+      const thumbTip = landmarks[4];
+      const indexBase = landmarks[5];
+      const indexTip = landmarks[8];
 
-      // DECISION
-      if (extendedFingers >= 4) {
-        // OPEN HAND -> UNLEASH (CHAOS)
+      // Use midpoint between thumb tip and index tip as control point
+      const centerX = (thumbTip.x + indexTip.x) / 2;
+      const centerY = (thumbTip.y + indexTip.y) / 2;
+
+      setHandPos({ x: centerX, y: centerY });
+      if (onHandPosition) {
+        onHandPosition(centerX, centerY, true);
+      }
+
+      // Gesture: distance between thumb tip and index tip vs their base distance
+      const distTips = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
+      const distBases = Math.hypot(thumbBase.x - indexBase.x, thumbBase.y - indexBase.y) || 1e-5;
+      const ratio = distTips / distBases;
+
+      // Tunable thresholds
+      const OPEN_RATIO = 1.5;   // thumb & index clearly apart
+      const CLOSED_RATIO = 1.1; // thumb & index close together
+
+      if (ratio >= OPEN_RATIO) {
+        // Thumb + index spread apart -> UNLEASH (CHAOS)
         openFrames.current++;
         closedFrames.current = 0;
         
-        setGestureStatus("Detected: OPEN (Unleash)");
+        setGestureStatus("Detected: OPEN (Thumb + Index)");
 
         if (openFrames.current > CONFIDENCE_THRESHOLD) {
             if (lastModeRef.current !== TreeMode.CHAOS) {
@@ -229,12 +224,12 @@ export const GestureController: React.FC<GestureControllerProps> = ({ onModeChan
             }
         }
 
-      } else if (extendedFingers <= 1) {
-        // CLOSED FIST -> RESTORE (FORMED)
+      } else if (ratio <= CLOSED_RATIO) {
+        // Thumb + index pinched together -> RESTORE (FORMED)
         closedFrames.current++;
         openFrames.current = 0;
         
-        setGestureStatus("Detected: CLOSED (Restore)");
+        setGestureStatus("Detected: CLOSED (Pinch)");
 
         if (closedFrames.current > CONFIDENCE_THRESHOLD) {
             if (lastModeRef.current !== TreeMode.FORMED) {
@@ -264,47 +259,21 @@ export const GestureController: React.FC<GestureControllerProps> = ({ onModeChan
   }, [currentMode]);
 
   return (
-    <div className="absolute top-6 right-[8%] z-50 flex flex-col items-end pointer-events-none">
-
-      
-      {/* Camera Preview Frame */}
-      <div className="relative w-[18.75vw] h-[14.0625vw] border-2 border-[#D4AF37] rounded-lg overflow-hidden shadow-[0_0_20px_rgba(212,175,55,0.3)] bg-black">
-        {/* Decorative Lines */}
-        <div className="absolute inset-0 border border-[#F5E6BF]/20 m-1 rounded-sm z-10"></div>
-        
+    // Keep video + canvas in DOM for gesture detection,
+    // but make the preview fully transparent so it’s invisible.
+    <div className="absolute top-6 right-[8%] z-50 flex flex-col items-end opacity-0 pointer-events-none">
+      <div className="relative w-[18.75vw] h-[14.0625vw] bg-black">
         <video
           ref={videoRef}
           autoPlay
           playsInline
           muted
-          className={`w-full h-full object-cover transform -scale-x-100 transition-opacity duration-1000 ${isLoaded ? 'opacity-100' : 'opacity-0'}`}
+          className="w-full h-full object-cover transform -scale-x-100"
         />
-        
-        {/* Canvas for hand skeleton overlay */}
         <canvas
           ref={canvasRef}
-          className="absolute inset-0 w-full h-full object-cover transform -scale-x-100 pointer-events-none z-20"
+          className="absolute inset-0 w-full h-full object-cover transform -scale-x-100 pointer-events-none"
         />
-        
-        {/* Hand Position Debug */}
-        {/* {handPos && (
-          <div className="absolute top-2 left-2 text-[10px] text-[#D4AF37] bg-black/70 px-2 py-1 rounded font-mono">
-            X: {handPos.x.toFixed(2)} Y: {handPos.y.toFixed(2)}
-          </div>
-        )} */}
-        
-        {/* Hand Position Indicator */}
-        {handPos && (
-          <div 
-            className="absolute w-2 h-2 bg-[#D4AF37] rounded-full border border-white"
-            style={{
-              left: `${(1 - handPos.x) * 100}%`,
-              top: `${handPos.y * 100}%`,
-              transform: 'translate(-50%, -50%)'
-            }}
-          />
-        )}
-    
       </div>
     </div>
   );

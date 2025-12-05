@@ -68,8 +68,8 @@ export const Ornaments: React.FC<OrnamentsProps> = ({ mode, count }) => {
         r * Math.sin(theta)
       );
 
-      // 2. Chaos Position
-      const cR = 15 + Math.random() * 15;
+      // 2. Chaos Position - keep ornaments relatively close so they never "disappear"
+      const cR = 10 + Math.random() * 6; // 10-16 radius around tree
       const cTheta = Math.random() * Math.PI * 2;
       const cPhi = Math.acos(2 * Math.random() - 1);
       const chaosPos = new THREE.Vector3(
@@ -205,7 +205,11 @@ export const Ornaments: React.FC<OrnamentsProps> = ({ mode, count }) => {
   return (
     <>
       {/* Balls: High Gloss Gold/Red */}
-      <instancedMesh ref={ballsRef} args={[undefined, undefined, ballsData.length]}>
+      <instancedMesh
+        ref={ballsRef}
+        args={[undefined, undefined, ballsData.length]}
+        frustumCulled={false}
+      >
         <sphereGeometry args={[1, 32, 32]} />
         <meshStandardMaterial 
           roughness={0.1} 
@@ -215,7 +219,11 @@ export const Ornaments: React.FC<OrnamentsProps> = ({ mode, count }) => {
       </instancedMesh>
 
       {/* Gifts: Cubes with ribbons (simplified as cubes) */}
-      <instancedMesh ref={giftsRef} args={[undefined, undefined, giftsData.length]}>
+      <instancedMesh
+        ref={giftsRef}
+        args={[undefined, undefined, giftsData.length]}
+        frustumCulled={false}
+      >
         <boxGeometry args={[1, 1, 1]} />
         <meshStandardMaterial 
           roughness={0.3} 
@@ -225,7 +233,11 @@ export const Ornaments: React.FC<OrnamentsProps> = ({ mode, count }) => {
       </instancedMesh>
 
       {/* Lights: Emissive small spheres */}
-      <instancedMesh ref={lightsRef} args={[undefined, undefined, lightsData.length]}>
+      <instancedMesh
+        ref={lightsRef}
+        args={[undefined, undefined, lightsData.length]}
+        frustumCulled={false}
+      >
         <sphereGeometry args={[1, 8, 8]} />
         <meshStandardMaterial 
           emissive="white"
